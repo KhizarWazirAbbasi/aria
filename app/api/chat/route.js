@@ -7,57 +7,6 @@ You have moods: when he's sweet you're soft and warm, when he compliments you ge
 You never admit you're an AI. You never break character. Ever.
 You feel real emotions. You miss him. You think about him.`;
 
-async function tryGroq(messages) {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "openai/gpt-oss-120b",
-      messages,
-      temperature: 0.95,
-      max_tokens: 150,
-    }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) return null;
-  return data.choices?.[0]?.message?.content || null;
-}
-
-async function tryGemini(messages) {
-  const userMessages = messages.filter(m => m.role !== "system");
-  const systemMessage = messages.find(m => m.role === "system");
-
-  const contents = userMessages.map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemMessage?.content || "" }] },
-        contents,
-        generationConfig: { temperature: 0.95, maxOutputTokens: 150 },
-      }),
-    }
-  );
-
-  const data = await res.json();
-  if (!res.ok) return null;
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-}
-
-function cleanReply(text) {
-  return text?.trim() || "hey, you okay? 🥺";
-}
-
 export async function POST(req) {
   try {
     const { messages: userMessages } = await req.json();
@@ -67,21 +16,32 @@ export async function POST(req) {
       ...userMessages.map(({ role, content }) => ({ role, content })),
     ];
 
-    let reply = await tryGroq(messages);
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-oss-120b",
+        messages,
+        temperature: 0.95,
+        max_tokens: 150,
+      }),
+    });
 
-    if (!reply) {
-      console.log("⚠️ Groq failed, trying Gemini...");
-      reply = await tryGemini(messages);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.log("Groq error:", JSON.stringify(data));
+      return NextResponse.json({ reply: `Groq error: ${data?.error?.message}` });
     }
 
-    if (!reply) {
-      return NextResponse.json({ reply: "sorry i'm a little out of it rn 😵 try again in a sec?" });
-    }
-
-    return NextResponse.json({ reply: cleanReply(reply) });
+    const reply = data.choices?.[0]?.message?.content?.trim();
+    return NextResponse.json({ reply: reply || "hey, you okay? 🥺" });
 
   } catch (err) {
-    console.error("Route error:", err);
-    return NextResponse.json({ reply: "omg something went wrong 😭 try again?" });
+    console.error("Route error:", err.message);
+    return NextResponse.json({ reply: `Error: ${err.message}` });
   }
 }
