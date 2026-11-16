@@ -23,13 +23,35 @@ async function tryGroq(messages) {
   });
 
   const data = await res.json();
-
-  if (!res.ok) {
-    console.log("Groq error:", JSON.stringify(data));
-    return null;
-  }
-
+  if (!res.ok) return null;
   return data.choices?.[0]?.message?.content || null;
+}
+
+async function tryGemini(messages) {
+  const userMessages = messages.filter(m => m.role !== "system");
+  const systemMessage = messages.find(m => m.role === "system");
+
+  const contents = userMessages.map(m => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemMessage?.content || "" }] },
+        contents,
+        generationConfig: { temperature: 0.95, maxOutputTokens: 150 },
+      }),
+    }
+  );
+
+  const data = await res.json();
+  if (!res.ok) return null;
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
 function cleanReply(text) {
@@ -45,7 +67,12 @@ export async function POST(req) {
       ...userMessages.map(({ role, content }) => ({ role, content })),
     ];
 
-    const reply = await tryGroq(messages);
+    let reply = await tryGroq(messages);
+
+    if (!reply) {
+      console.log("⚠️ Groq failed, trying Gemini...");
+      reply = await tryGemini(messages);
+    }
 
     if (!reply) {
       return NextResponse.json({ reply: "sorry i'm a little out of it rn 😵 try again in a sec?" });
