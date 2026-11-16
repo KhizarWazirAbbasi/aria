@@ -8,38 +8,94 @@ function getCurrentTime() {
   return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h >= 2 && h < 5) return "can't sleep either? 🌙";
+  if (h >= 5 && h < 12) return "you're up early... thinking of me? ☀️";
+  if (h >= 12 && h < 18) return "hey you. i was wondering when you'd show up";
+  if (h >= 18 && h < 22) return "hey. i missed you tonight";
+  return "it's late. glad you're here 🌙";
+}
+
+function playBlip() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const freqs = [520, 660, 580];
+    freqs.forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.06, ctx.currentTime + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.09 + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.09);
+      osc.stop(ctx.currentTime + i * 0.09 + 0.2);
+    });
+  } catch {}
+}
+
 export default function Home() {
   const [messages, setMessages] = useState([
-    { role: "assistant", content: "hey. you came back 🌙", time: "" },
+    { role: "assistant", content: "", time: "" },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+  const originalTitle = useRef("aria");
 
+  // Load saved messages OR set time-aware greeting
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      try { setMessages(JSON.parse(saved)); } catch {}
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.length > 0) { setMessages(parsed); return; }
+      } catch {}
     }
+    setMessages([{ role: "assistant", content: getGreeting(), time: getCurrentTime() }]);
   }, []);
 
+  // Fix empty time on first message (hydration safe)
   useEffect(() => {
     setMessages((prev) =>
-      prev.map((m, i) =>
-        i === 0 && m.time === "" ? { ...m, time: getCurrentTime() } : m
-      )
+      prev.map((m, i) => {
+        if (i === 0 && m.time === "") return { ...m, time: getCurrentTime() };
+        if (i === 0 && m.content === "") return { ...m, content: getGreeting(), time: getCurrentTime() };
+        return m;
+      })
     );
   }, []);
 
+  // Save to localStorage
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && messages[0].content !== "") {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     }
   }, [messages]);
 
+  // Scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Auto-focus input
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [loading]);
+
+  // Tab title notification
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        document.title = originalTitle.current;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -55,10 +111,22 @@ export default function Home() {
         body: JSON.stringify({ messages: updated }),
       });
       const data = await res.json();
+      const reply = data.reply || "hey, you okay? 🥺";
+
+      // Fake typing delay — longer reply = longer wait
+      const delay = Math.min(600 + reply.length * 12, 1800);
+      await new Promise((r) => setTimeout(r, delay));
+
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, time: getCurrentTime() },
+        { role: "assistant", content: reply, time: getCurrentTime() },
       ]);
+      playBlip();
+
+      // Tab notification if user is away
+      if (document.visibilityState === "hidden") {
+        document.title = "💬 aria is thinking of you...";
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -76,7 +144,7 @@ export default function Home() {
   };
 
   const clearChat = () => {
-    const fresh = [{ role: "assistant", content: "hey. you came back 🌙", time: getCurrentTime() }];
+    const fresh = [{ role: "assistant", content: getGreeting(), time: getCurrentTime() }];
     setMessages(fresh);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
   };
@@ -139,6 +207,7 @@ export default function Home() {
           background: #0A090E;
           animation: flicker 8s infinite;
           overflow: hidden;
+          height: 100dvh;
         }
 
         /* scanlines */
@@ -431,6 +500,7 @@ export default function Home() {
         <div className="input-area">
           <span className="input-prompt">&gt;_</span>
           <input
+            ref={inputRef}
             className="input-field"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -441,6 +511,7 @@ export default function Home() {
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck="false"
+            autoFocus
           />
           <button
             className="send-btn"
