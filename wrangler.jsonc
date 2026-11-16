@@ -1,0 +1,6 @@
+{
+  "name": "aria",
+  "compatibility_date": "2025-11-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next/assets"
+}
