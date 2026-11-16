@@ -1,246 +1,192 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 
-const STORAGE_KEY = "aria_chat_history";
+const STORAGE_KEY = "aria-chat-history";
+
+function getCurrentTime() {
+  const now = new Date();
+  return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function FilmGrain() {
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-50"
+      style={{
+        opacity: 0.035,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+        backgroundRepeat: "repeat",
+        backgroundSize: "128px 128px",
+      }}
+    />
+  );
+}
 
 export default function Home() {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "heyy 💕 i missed you, how are you doing?",
-      time: "",
-    },
-  ]);
+  const [messages, setMessages] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    }
+    return [{ role: "assistant", content: "hey.. you came back 🌙", time: "" }];
+  });
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [typingDots, setTypingDots] = useState(false);
   const bottomRef = useRef(null);
 
-  function getCurrentTime() {
-    return new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  // LOAD CHAT
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.length > 0) {
-          setMessages(parsed);
-        }
-      }
-    } catch (e) {}
-  }, []);
-
-  // SAVE CHAT + SCROLL
-  useEffect(() => {
-    try {
-      if (messages.length > 0) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-      }
-    } catch (e) {}
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [typingDots]);
-
-  // SEND MESSAGE
-  const sendMessage = async () => {
+  async function sendMessage() {
     if (!input.trim() || loading) return;
 
-    const userMessage = {
-      role: "user",
-      content: input,
-      time: getCurrentTime(),
-    };
-
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    const userMessage = { role: "user", content: input.trim(), time: getCurrentTime() };
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     setInput("");
     setLoading(true);
 
-    // SHOW TYPING DOTS AFTER SMALL DELAY
-    // FEELS LIKE SHE IS READING YOUR MESSAGE FIRST
-    setTimeout(() => {
-      setTypingDots(true);
-    }, 500);
-
     try {
-      const response = await fetch("/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({ messages: updatedMessages }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: newMessages }),
       });
 
-      const data = await response.json();
-
-      // SMALL DELAY BEFORE SHOWING REPLY
-      // FEELS LIKE SHE FINISHED TYPING
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      setTypingDots(false);
-
-      setMessages([
-        ...updatedMessages,
-        {
-          role: "assistant",
-          content: data.reply,
-          time: getCurrentTime(),
-        },
-      ]);
-
-    } catch (error) {
-      setTypingDots(false);
-      setMessages([
-        ...updatedMessages,
-        {
-          role: "assistant",
-          content: "sorry babe something went wrong 😢",
-          time: getCurrentTime(),
-        },
-      ]);
+      const data = await res.json();
+      setMessages([...newMessages, { role: "assistant", content: data.reply, time: getCurrentTime() }]);
+    } catch {
+      setMessages([...newMessages, { role: "assistant", content: "i'm here, just lost signal for a sec 🌙", time: getCurrentTime() }]);
+    } finally {
+      setLoading(false);
     }
+  }
 
-    setLoading(false);
-  };
-
-  // CLEAR CHAT
-  const clearChat = () => {
-    const confirmed = window.confirm("Clear all chat history?");
-    if (confirmed) {
-      localStorage.removeItem(STORAGE_KEY);
-      setMessages([
-        {
-          role: "assistant",
-          content: "heyy 💕 i missed you, how are you doing?",
-          time: getCurrentTime(),
-        },
-      ]);
-    }
-  };
-
-  // ENTER KEY
-  const handleKey = (e) => {
+  function handleKey(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  };
+  }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0f0f0f]">
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ backgroundColor: "#1c1814", color: "#e8d5b7", fontFamily: "'Courier New', Courier, monospace" }}
+    >
+      <FilmGrain />
 
-      {/* HEADER */}
-      <div className="flex items-center justify-between px-6 py-4 bg-[#1a1a1a] border-b border-[#2a2a2a]">
+      {/* Status bar */}
+      <div
+        className="flex items-center justify-between px-6 py-4 border-b shrink-0"
+        style={{ borderColor: "#2e2518" }}
+      >
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-11 h-11 rounded-full bg-gradient-to-br from-pink-400 to-rose-500 flex items-center justify-center text-xl">
-              🌸
-            </div>
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-400 rounded-full border-2 border-[#1a1a1a]"></div>
-          </div>
-          <div>
-            <h1 className="text-white font-semibold text-sm">Aria</h1>
-            <p className="text-green-400 text-xs">
-              {typingDots ? "typing..." : "Online"}
-            </p>
-          </div>
+          <span className="text-sm tracking-widest uppercase" style={{ color: "#c8a882" }}>aria</span>
+          <span className="text-xs" style={{ color: "#6b5a3e" }}>—</span>
+          <span className="text-xs" style={{ color: "#8b7355" }}>online</span>
+          <span className="text-xs" style={{ color: "#c8a882" }}>●</span>
         </div>
-        <button
-          onClick={clearChat}
-          className="text-gray-500 hover:text-gray-300 text-xs transition-colors"
-        >
-          Clear Chat
-        </button>
+        <span className="text-xs" style={{ color: "#3d3326" }}>est. 2025</span>
       </div>
 
-      {/* MESSAGES */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex flex-col ${
-              msg.role === "user" ? "items-end" : "items-start"
-            }`}
-          >
-            <div className={`flex items-end gap-2 ${
-              msg.role === "user" ? "flex-row-reverse" : "flex-row"
-            }`}>
-              {msg.role === "assistant" && (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-400 to-rose-500 flex items-center justify-center text-sm flex-shrink-0">
-                  🌸
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-8" style={{ scrollbarWidth: "none" }}>
+        <div className="max-w-xl w-full mx-auto space-y-8">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+              {msg.role === "assistant" ? (
+                <div className="max-w-sm w-full">
+                  <div className="text-xs mb-2 tracking-widest" style={{ color: "#4a3f2e" }}>aria</div>
+                  <div
+                    className="px-4 py-3 text-sm leading-loose"
+                    style={{
+                      backgroundColor: "#211d17",
+                      color: "#c8a882",
+                      borderLeft: "2px solid #5a3e2b",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                  {msg.time && (
+                    <div className="text-xs mt-2" style={{ color: "#3d3326" }}>{msg.time}</div>
+                  )}
+                </div>
+              ) : (
+                <div className="max-w-sm w-full">
+                  <div className="text-xs mb-2 tracking-widest text-right" style={{ color: "#4a3f2e" }}>you</div>
+                  <div
+                    className="px-4 py-3 text-sm leading-loose text-right"
+                    style={{
+                      color: "#e8d5b7",
+                      borderRight: "2px solid #3d3326",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                  {msg.time && (
+                    <div className="text-xs mt-2 text-right" style={{ color: "#3d3326" }}>{msg.time}</div>
+                  )}
                 </div>
               )}
-              <div
-                className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-gradient-to-br from-pink-500 to-rose-500 text-white rounded-br-sm"
-                    : "bg-[#1e1e1e] text-gray-100 rounded-bl-sm border border-[#2a2a2a]"
-                }`}
-              >
-                {msg.content}
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex flex-col items-start">
+              <div className="max-w-sm w-full">
+                <div className="text-xs mb-2 tracking-widest" style={{ color: "#4a3f2e" }}>aria</div>
+                <div
+                  className="px-4 py-3 text-sm"
+                  style={{ backgroundColor: "#211d17", color: "#4a3f2e", borderLeft: "2px solid #3d2e1e" }}
+                >
+                  . . .
+                </div>
               </div>
             </div>
-            {msg.time && (
-              <p className={`text-gray-600 text-xs mt-1 ${
-                msg.role === "user" ? "mr-1" : "ml-10"
-              }`}>
-                {msg.time}
-              </p>
-            )}
-          </div>
-        ))}
+          )}
 
-        {/* TYPING DOTS */}
-        {typingDots && (
-          <div className="flex items-end gap-2">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-400 to-rose-500 flex items-center justify-center text-sm">
-              🌸
-            </div>
-            <div className="bg-[#1e1e1e] border border-[#2a2a2a] px-4 py-3 rounded-2xl rounded-bl-sm flex gap-1 items-center">
-              <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-              <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-              <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
-            </div>
-          </div>
-        )}
-
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {/* INPUT */}
-      <div className="px-4 py-4 bg-[#1a1a1a] border-t border-[#2a2a2a]">
-        <div className="flex items-end gap-3 bg-[#2a2a2a] rounded-2xl px-4 py-3">
-          <textarea
-            className="flex-1 bg-transparent text-white text-sm resize-none outline-none placeholder-gray-500 max-h-32"
-            placeholder="Message Aria..."
-            rows={1}
+      {/* Input */}
+      <div
+        className="border-t px-4 py-5 shrink-0"
+        style={{ borderColor: "#2e2518" }}
+      >
+        <div className="max-w-xl w-full mx-auto flex items-center gap-4">
+          <span className="text-xs" style={{ color: "#4a3f2e" }}>&gt;</span>
+          <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKey}
+            placeholder="say something..."
+            className="flex-1 bg-transparent outline-none text-sm"
+            style={{
+              color: "#e8d5b7",
+              caretColor: "#c8a882",
+              fontFamily: "'Courier New', Courier, monospace",
+            }}
           />
           <button
             onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            className="w-9 h-9 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center disabled:opacity-40 hover:opacity-90 transition-opacity flex-shrink-0"
+            disabled={!input.trim() || loading}
+            className="text-xs tracking-widest uppercase transition-opacity"
+            style={{
+              color: "#c8a882",
+              opacity: !input.trim() || loading ? 0.2 : 1,
+              fontFamily: "'Courier New', Courier, monospace",
+            }}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-4 h-4">
-              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-            </svg>
+            send
           </button>
         </div>
-        <p className="text-center text-gray-600 text-xs mt-2">Press Enter to send</p>
       </div>
-
     </div>
   );
 }
